@@ -1,0 +1,18 @@
+.DS_Store
+
+# Real environment files and local overrides must never be committed.
+.env
+*.env
+!*.env.example
+
+# Credentials and private key material.
+secrets/
+*.key
+*.pem
+
+# Deployment output and local backup artifacts.
+.deploy/
+backups/
+
+# Linked worktrees created for issue-scoped development.
+/.worktrees/
