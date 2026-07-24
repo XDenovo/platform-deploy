@@ -2,40 +2,36 @@
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-local_postgres="${repo_root}/scripts/local-postgres.sh"
-init_local_env="${repo_root}/scripts/init-local-env.sh"
+xdd_bin="${XDD_BIN:-${repo_root}/bin/xdd}"
 smoke_project="xdenovo-platform-local-smoke"
 smoke_dir="$(mktemp -d)"
 smoke_env="${smoke_dir}/local.env"
-
-cleanup() {
-  if [[ -x "${local_postgres}" && -f "${smoke_env}" ]]; then
-    "${local_postgres}" \
-      --env-file "${smoke_env}" \
-      --project-name "${smoke_project}" \
-      reset --confirm-destroy-data >/dev/null 2>&1 || true
-  fi
-  rm -rf "${smoke_dir}"
-}
-trap cleanup EXIT
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
   exit 1
 }
 
-local_command() {
-  "${local_postgres}" \
-    --env-file "${smoke_env}" \
-    --project-name "${smoke_project}" \
-    "$@"
+if [[ ! -x "${xdd_bin}" ]]; then
+  fail "compiled xdd binary is not executable: ${xdd_bin}"
+fi
+
+xdd() {
+  XDD_LOCAL_ENV_FILE="${smoke_env}" \
+    XDD_LOCAL_PROJECT_NAME="${smoke_project}" \
+    "${xdd_bin}" "$@"
 }
 
+cleanup() {
+  if [[ -f "${smoke_env}" ]]; then
+    xdd local dev reset --confirm-destroy-data >/dev/null 2>&1 || true
+  fi
+  rm -rf "${smoke_dir}"
+}
+trap cleanup EXIT
+
 compose_exec_psql() {
-  docker compose \
-    --env-file "${smoke_env}" \
-    --file "${repo_root}/compose.local.yaml" \
-    --project-name "${smoke_project}" \
+  xdd local dev -- \
     exec --no-TTY postgres \
     psql \
     --username xdenovo_bootstrap \
@@ -59,11 +55,29 @@ assert_query() {
     fail "${description}: expected '${expected}', got '${actual}'"
 }
 
-"${init_local_env}" "${smoke_env}" 0
-local_command validate
-local_command start
-local_command bootstrap
-local_command bootstrap
+cat >"${smoke_env}" <<'ENV'
+XDN_LOCAL_POSTGRES_PORT=0
+XDN_LOCAL_POSTGRES_ADMIN_PASSWORD=smoke-test-admin-password
+XDN_GATEWAY_MIGRATOR_PASSWORD=smoke-test-migrator-password
+XDN_GATEWAY_RUNTIME_PASSWORD=smoke-test-runtime-password
+XDN_LOCAL_SEAWEEDFS_PORT=0
+XDN_LOCAL_TEMPORAL_PORT=0
+XDN_LOCAL_DBGATE_PORT=0
+XDN_LOCAL_GATEWAY_PORT=0
+XDN_GATEWAY_AUTH_SECRET=smoke-test-gateway-auth-secret-32-bytes
+ENV
+chmod 600 "${smoke_env}"
+
+xdd local dev check
+xdd local dev up
+
+running_services="$(xdd local dev -- ps --services --filter status=running)"
+if [[ "$(printf '%s\n' "${running_services}" | sort)" != $'dbgate\npostgres\nseaweedfs\ntemporal' ]]; then
+  fail "dev profile did not leave every dependency running"
+fi
+
+xdd local dev bootstrap
+xdd local dev bootstrap
 
 role_attributes_sql=$(
   cat <<'SQL'
@@ -125,7 +139,7 @@ compose_exec_psql \
   postgres \
   "ALTER ROLE gateway_runtime WITH SUPERUSER CREATEDB CREATEROLE INHERIT REPLICATION BYPASSRLS; GRANT xdenovo_bootstrap TO gateway_runtime; ALTER DATABASE platform OWNER TO gateway_runtime;" \
   >/dev/null
-local_command bootstrap
+xdd local dev bootstrap
 
 assert_query \
   postgres \
@@ -143,25 +157,24 @@ assert_query \
   "xdenovo_bootstrap" \
   "converged platform database ownership"
 
-local_command stop
-local_command start
+xdd local dev down
+xdd local dev up
 
 assert_query \
   postgres \
   "SELECT count(*) FROM pg_database WHERE datname = 'platform';" \
   "1" \
-  "platform database persistence after a normal stop and start"
+  "platform database persistence after normal down and up"
 assert_query \
   postgres \
   "${role_attributes_sql}" \
   "${expected_role_attributes}" \
-  "Gateway role persistence after a normal stop and start"
+  "Gateway role persistence after normal down and up"
 
-reset_output="$(local_command reset --confirm-destroy-data)"
-[[ "${reset_output}" == *"${smoke_project}_postgres_data"* ]] ||
-  fail "destructive reset must display the exact named data volume"
-if docker volume inspect "${smoke_project}_postgres_data" >/dev/null 2>&1; then
-  fail "destructive reset did not delete the smoke project's named data volume"
-fi
+reset_output="$(xdd local dev reset --confirm-destroy-data)"
+for volume in postgres_data seaweedfs_data dbgate_data; do
+  [[ "${reset_output}" == *"${smoke_project}_${volume}"* ]] ||
+    fail "destructive reset must display the exact ${volume} named volume"
+done
 
-printf 'Local PostgreSQL smoke checks passed.\n'
+printf 'Local dev profile smoke checks passed.\n'

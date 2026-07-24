@@ -1,136 +1,186 @@
 # XDenovo Platform Deployment
 
-This repository composes the XDenovo Platform's Local and Production
-deployments. The first executable slice provides Local PostgreSQL for the
-Gateway's persistent authentication data. It follows the canonical
-[Platform architecture and database-role contract](https://github.com/XDenovo/platform/blob/main/docs/architecture.md)
-and the approved
-[Platform technology stack](https://github.com/XDenovo/platform/blob/main/docs/techstack.md).
+This repository composes the XDenovo Platform's two environments: Local and
+Production. Local has two Docker Compose profiles:
 
-## Local PostgreSQL
+- `dev` runs PostgreSQL, SeaweedFS, Temporal, and DbGate as real background
+  dependencies for service development.
+- `full` runs everything in `dev` plus Gateway and the three Compute MCP
+  Services from sibling source checkouts. It is a staging-like Local profile,
+  not a third environment.
 
-The Local Compose project is named `xdenovo-platform-local`. It contains only
-PostgreSQL, uses the `postgres:18.4` image baseline shared with Gateway
-Testcontainers integration tests, publishes PostgreSQL to `127.0.0.1`, and
-persists data in the `postgres_data` named volume.
+Production remains outside the Local CLI and continues to use its explicit
+Docker Compose and systemd topology. The canonical
+[Platform architecture](https://github.com/XDenovo/platform/blob/main/docs/architecture.md)
+and
+[Platform technology stack](https://github.com/XDenovo/platform/blob/main/docs/techstack.md)
+own the platform-wide boundaries and technology decisions.
 
-PostgreSQL 18 official images store versioned data below
-`/var/lib/postgresql`, so the named volume is mounted at that path. The
-container enables `no-new-privileges`. Its filesystem remains writable and its
-image-default startup capabilities remain available because the official
-entrypoint must initialize PostgreSQL and set ownership on a new named volume.
-The service is loopback-only and contains no application process.
+## Install `xdd`
 
-### Prerequisites and Local configuration
-
-Install Docker with Docker Compose and make sure its engine is running. Create
-the ignored Local environment file from the repository root:
+Install Go and Docker with Docker Compose, then build the Local-only Cobra CLI
+from this repository:
 
 ```bash
-./scripts/init-local-env.sh config/local.env
+go install ./cmd/xdd
+xdd --help
 ```
 
-The command writes mode-`0600` random credentials without printing them and
-refuses to overwrite an existing file. `config/local.env.example` documents the
-required non-secret shape; do not run Local PostgreSQL with its placeholders.
-Real `*.env` files are ignored by Git.
+`go install` writes `xdd` to `GOBIN`, or to the Go workspace's `bin`
+directory when `GOBIN` is unset. This repository intentionally does not
+publish cross-platform CLI binaries.
 
-The generated file contains an administrator credential used only by the
-deployment bootstrap plus separate `gateway_migrator` and `gateway_runtime`
-credentials. Give Gateway processes only the credential for their identity:
+Run `xdd` from the `platform-deploy` repository root. Every invocation uses
+the stable `xdenovo-platform-local` Compose project, `compose.local.yaml`, and
+`config/local.env`.
+
+## Configure Local
+
+Create the ignored Local environment file with independent random secrets:
+
+```bash
+xdd local dev init
+```
+
+The command writes `config/local.env` with mode `0600`, never prints the
+generated secrets, and refuses to overwrite an existing file.
+`config/local.env.example` documents the non-secret shape for manual review.
+Do not give the PostgreSQL administrator credential to Gateway processes.
+
+The default loopback endpoints are:
+
+| Service | Endpoint |
+|---|---|
+| PostgreSQL | `127.0.0.1:5432` |
+| SeaweedFS S3 | `http://127.0.0.1:8333` |
+| Temporal | `127.0.0.1:7233` |
+| DbGate | `http://127.0.0.1:3000` |
+| Gateway (`full` only) | `http://127.0.0.1:3001` |
+
+All published ports bind to `127.0.0.1`. Real environment files remain out of
+Git.
+
+## Use the `dev` profile
+
+Validate interpolation and the rendered Compose model without changing
+containers:
+
+```bash
+xdd local dev check
+```
+
+Start all development dependencies and wait for their health checks:
+
+```bash
+xdd local dev up
+```
+
+Converge the deployment-owned PostgreSQL database, roles, and grants:
+
+```bash
+xdd local dev bootstrap
+```
+
+Bootstrap is idempotent. It owns only cluster/database-level PostgreSQL
+resources. Gateway continues to own its schemas, tables, and migrations.
+Temporal's Local `auto-setup` container provisions its own databases and
+schema. SeaweedFS bucket and policy convergence will be added when a consuming
+service defines that contract.
+
+Inspect or operate the profile through Docker Compose without adding commands
+to `xdd`:
+
+```bash
+xdd local dev -- ps
+xdd local dev -- logs --follow temporal
+xdd local dev -- exec postgres psql --username xdenovo_bootstrap --dbname postgres
+```
+
+The arguments after `--` pass straight through to `docker compose` after
+`xdd` injects the project, env file, Compose file, and resolved profile flags.
+Pass-through cannot replace those global options or delete volumes; use the
+confirmed `reset` action for volume deletion.
+
+Stop containers and the project network while preserving named volumes:
+
+```bash
+xdd local dev down
+```
+
+Delete the exact Local named volumes only with explicit confirmation:
+
+```bash
+xdd local dev reset --confirm-destroy-data
+```
+
+Before deletion, `xdd` resolves and displays the existing PostgreSQL,
+SeaweedFS, and DbGate volume names from their Compose labels. It then stops the
+profile without implicit volume deletion and removes only those displayed
+volumes.
+
+## Use the `full` profile
+
+Place these repositories beside `platform-deploy`, each with a root
+`Dockerfile`:
 
 ```text
-postgresql://gateway_migrator:<migrator-password>@127.0.0.1:5432/platform
-postgresql://gateway_runtime:<runtime-password>@127.0.0.1:5432/platform
+Platform/
+├── platform-deploy/
+├── gateway/
+├── pepmimic-mcp/
+├── graphpep-mcp/
+└── bindcraft-mcp/
 ```
 
-Do not copy `XDN_LOCAL_POSTGRES_ADMIN_PASSWORD` into the Gateway repository or
-any Gateway process. Generated passwords are hexadecimal, so they can be used
-in these Local URLs without additional URL encoding. If the configured host
-port changes, update the URLs accordingly.
-
-### Validate, start, and bootstrap
-
-Validate interpolation and the rendered Compose model without printing its
-potentially secret-bearing output:
+Then use the same action surface:
 
 ```bash
-./scripts/local-postgres.sh --env-file config/local.env validate
+xdd local full check
+xdd local full up
+xdd local full bootstrap
+xdd local full -- logs --follow gateway
+xdd local full down
 ```
 
-Start PostgreSQL and wait for its health check to pass:
+`full` activates both the `dev` and `full` Compose profiles. Its application
+services build from the sibling checkouts and receive
+`COMPUTE_BACKEND=fake` as the temporary fake-compute contract.
+`xdd local full up` fails before Docker runs if a required checkout or root Dockerfile is
+missing. The exact fake-backend variable is still owned by the application
+repositories and must be updated when their cross-repository contract lands.
 
-```bash
-./scripts/local-postgres.sh --env-file config/local.env start
-```
+Website is deliberately absent from `full`; run Website with its own
+`pnpm dev` command and point it at the loopback Gateway endpoint.
 
-Inspect container and health status:
+## Security scope
 
-```bash
-./scripts/local-postgres.sh --env-file config/local.env status
-```
-
-Create or converge the `platform` database and the two Gateway login roles:
-
-```bash
-./scripts/local-postgres.sh --env-file config/local.env bootstrap
-```
-
-Bootstrap is idempotent. It repairs elevated role attributes and unexpected
-role memberships, restores bootstrap ownership of the `platform` database,
-and grants:
-
-- `gateway_migrator`: `CONNECT` and `CREATE` on the `platform` database;
-- `gateway_runtime`: `CONNECT` on the `platform` database.
-
-The bootstrap does not create `auth` or `gateway` schemas, application tables,
-Drizzle migration state, or domain data. Gateway owns those schemas,
-migrations, and schema-level runtime grants.
-
-### Non-destructive stop and restart
-
-Stop and remove the Local container and network while preserving PostgreSQL
-data:
-
-```bash
-./scripts/local-postgres.sh --env-file config/local.env stop
-```
-
-Run the `start` command again to recreate the container with the same named
-volume. Re-running `bootstrap` after a restart is safe.
-
-### Destructive reset
-
-The following command permanently deletes the Local PostgreSQL named volume.
-It is separate from the normal lifecycle and requires the explicit destructive
-confirmation flag:
-
-```bash
-./scripts/local-postgres.sh --env-file config/local.env reset --confirm-destroy-data
-```
-
-The script displays the exact Local Compose project before deleting its
-containers and volume. This reset is not part of normal stop or restart.
+The Local infrastructure images use `no-new-privileges`. Writable filesystems
+and image-default users/capabilities remain where the upstream entrypoints
+must initialize named volumes, generate Temporal configuration/schema, or
+update DbGate's container-local host mapping. These are loopback-only Local
+exceptions, not Production baselines.
 
 ## Validation
 
-The repository's executable validation commands are:
+Run the repository's executable checks from its root:
 
 ```bash
-bash -n scripts/*.sh tests/*.sh
-tests/local-compose-config.sh
-tests/local-postgres-smoke.sh
+test -z "$(gofmt -l cmd internal)"
+go vet ./...
+go test ./...
+go install ./cmd/xdd
+
+test_xdd="$(mktemp)"
+go build -o "${test_xdd}" ./cmd/xdd
+bash -n tests/*.sh
+XDD_BIN="${test_xdd}" tests/local-compose.sh
+XDD_BIN="${test_xdd}" tests/local-smoke.sh
+rm -f "${test_xdd}"
+
 git diff --check
 ```
 
-The Compose test checks the single-service model, exact PostgreSQL image,
-loopback binding, persistent named volume, health check, and fail-closed
-configuration. The smoke test uses the separate stable project
-`xdenovo-platform-local-smoke` with a Docker-selected ephemeral loopback port.
-It starts PostgreSQL, waits for readiness, bootstraps twice, verifies the
-database and least-privilege role contract, repairs deliberately elevated
-attributes, proves that no Gateway schema or application table was created,
-and recreates the container to verify persistence. Its trap deletes only the
-smoke project's generated volume.
-
-GitHub Actions runs both tests for pull requests and changes to `main`.
+The smoke test uses the separate
+`xdenovo-platform-local-smoke` project and ephemeral loopback ports. Its trap
+removes only that project's containers, network, and three generated named
+volumes.

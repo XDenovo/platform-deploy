@@ -3,6 +3,9 @@ name: xdenovo-platform-local
 services:
   postgres:
     image: postgres:18.4
+    profiles:
+      - dev
+      - full
     restart: unless-stopped
     environment:
       POSTGRES_DB: postgres
@@ -28,5 +31,203 @@ services:
       - no-new-privileges:true
     stop_grace_period: 30s
 
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.40
+    profiles:
+      - dev
+      - full
+    restart: unless-stopped
+    command:
+      - server
+      - -s3
+      - -dir=/data
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_SEAWEEDFS_PORT:?Set XDN_LOCAL_SEAWEEDFS_PORT in the Local environment file}:8333"
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --spider
+        - --quiet
+        - http://127.0.0.1:9333/cluster/status
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+  temporal:
+    image: temporalio/auto-setup:1.29.7
+    profiles:
+      - dev
+      - full
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: "5432"
+      POSTGRES_USER: xdenovo_bootstrap
+      POSTGRES_PWD: ${XDN_LOCAL_POSTGRES_ADMIN_PASSWORD:?Set XDN_LOCAL_POSTGRES_ADMIN_PASSWORD in the Local environment file}
+      POSTGRES_SEEDS: postgres
+      BIND_ON_IP: 0.0.0.0
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_TEMPORAL_PORT:?Set XDN_LOCAL_TEMPORAL_PORT in the Local environment file}:7233"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - nc -z 127.0.0.1 7233
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+  dbgate:
+    image: dbgate/dbgate:7.2.3-alpine
+    profiles:
+      - dev
+      - full
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CONNECTIONS: platform
+      LABEL_platform: XDenovo Local
+      SERVER_platform: postgres
+      PORT_platform: "5432"
+      USER_platform: xdenovo_bootstrap
+      PASSWORD_platform: ${XDN_LOCAL_POSTGRES_ADMIN_PASSWORD:?Set XDN_LOCAL_POSTGRES_ADMIN_PASSWORD in the Local environment file}
+      DATABASE_platform: platform
+      ENGINE_platform: postgres@dbgate-plugin-postgres
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_DBGATE_PORT:?Set XDN_LOCAL_DBGATE_PORT in the Local environment file}:3000"
+    volumes:
+      - dbgate_data:/root/.dbgate
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:3000').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+
+  gateway:
+    profiles:
+      - full
+    build:
+      context: ../gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      BETTER_AUTH_BASE_URL: http://127.0.0.1:${XDN_LOCAL_GATEWAY_PORT:?Set XDN_LOCAL_GATEWAY_PORT in the Local environment file}
+      BETTER_AUTH_BASE_PATH: /api/auth
+      BETTER_AUTH_SECRET: ${XDN_GATEWAY_AUTH_SECRET:?Set XDN_GATEWAY_AUTH_SECRET in the Local environment file}
+      BETTER_AUTH_TRUSTED_ORIGINS: http://127.0.0.1:${XDN_LOCAL_GATEWAY_PORT}
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "3000"
+      LOG_LEVEL: debug
+      LOG_PRETTY: "true"
+      DATABASE_MIGRATION_URL: postgresql://gateway_migrator:${XDN_GATEWAY_MIGRATOR_PASSWORD}@postgres:5432/platform
+      DATABASE_RUNTIME_URL: postgresql://gateway_runtime:${XDN_GATEWAY_RUNTIME_PASSWORD}@postgres:5432/platform
+      COMPUTE_BACKEND: fake
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_GATEWAY_PORT}:3000"
+    security_opt:
+      - no-new-privileges:true
+
+  pepmimic-mcp:
+    profiles:
+      - full
+    build:
+      context: ../pepmimic-mcp
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      MCP_RUNTIME_AUTH__ISSUER: https://api.xdenovoai.com/
+      MCP_RUNTIME_AUTH__JWKS_URL: http://gateway:3000/api/auth/jwks
+      MCP_RUNTIME_SERVER__HOST: 0.0.0.0
+      MCP_RUNTIME_SERVER__PORT: "8000"
+      MCP_RUNTIME_SERVER__ALLOWED_HOSTS: '["pepmimic-mcp","pepmimic-mcp:8000"]'
+      COMPUTE_BACKEND: fake
+    security_opt:
+      - no-new-privileges:true
+
+  graphpep-mcp:
+    profiles:
+      - full
+    build:
+      context: ../graphpep-mcp
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      MCP_RUNTIME_AUTH__ISSUER: https://api.xdenovoai.com/
+      MCP_RUNTIME_AUTH__JWKS_URL: http://gateway:3000/api/auth/jwks
+      MCP_RUNTIME_SERVER__HOST: 0.0.0.0
+      MCP_RUNTIME_SERVER__PORT: "8000"
+      MCP_RUNTIME_SERVER__ALLOWED_HOSTS: '["graphpep-mcp","graphpep-mcp:8000"]'
+      COMPUTE_BACKEND: fake
+    security_opt:
+      - no-new-privileges:true
+
+  bindcraft-mcp:
+    profiles:
+      - full
+    build:
+      context: ../bindcraft-mcp
+    restart: unless-stopped
+    depends_on:
+      gateway:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+    environment:
+      MCP_RUNTIME_AUTH__ISSUER: https://api.xdenovoai.com/
+      MCP_RUNTIME_AUTH__JWKS_URL: http://gateway:3000/api/auth/jwks
+      MCP_RUNTIME_SERVER__HOST: 0.0.0.0
+      MCP_RUNTIME_SERVER__PORT: "8000"
+      MCP_RUNTIME_SERVER__ALLOWED_HOSTS: '["bindcraft-mcp","bindcraft-mcp:8000"]'
+      COMPUTE_BACKEND: fake
+    security_opt:
+      - no-new-privileges:true
+
 volumes:
   postgres_data:
+  seaweedfs_data:
+  dbgate_data:
