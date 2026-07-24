@@ -13,6 +13,12 @@
       "skillPath": "skills/engineering/code-review/SKILL.md",
       "computedHash": "937bf8db7daad11bbb5cd8e7c8458b47187635255fca2d341c06e7612050e8ce"
     },
+    "golang-spf13-cobra": {
+      "source": "samber/cc-skills-golang",
+      "sourceType": "github",
+      "skillPath": "skills/golang-spf13-cobra/SKILL.md",
+      "computedHash": "dcfa99ce23eef99133df4b82fd1152c9ef8e1fef8fc467db2fb8f62398f7747f"
+    },
     "implement": {
       "source": "XDenovo/agent-skills",
       "sourceType": "github",
