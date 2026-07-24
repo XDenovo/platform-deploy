@@ -1,0 +1,50 @@
+name: Validate Local deployment
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local:
+    name: Go, Compose profiles, and Local smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Validate Go source and unit tests
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go vet ./...
+          go test ./...
+          go install ./cmd/xdd
+
+      - name: Build xdd for end-to-end tests
+        run: go build -o "${RUNNER_TEMP}/xdd" ./cmd/xdd
+
+      - name: Validate Bash test syntax
+        run: bash -n tests/*.sh
+
+      - name: Validate rendered Local profiles through xdd
+        env:
+          XDD_BIN: ${{ runner.temp }}/xdd
+        run: tests/local-compose.sh
+
+      - name: Smoke test the Local dev profile through xdd
+        env:
+          XDD_BIN: ${{ runner.temp }}/xdd
+        run: tests/local-smoke.sh

@@ -11,7 +11,8 @@
 
 ### Local
 
-- Run the platform on one developer machine with real PostgreSQL, MinIO, and Temporal services.
+- Run the platform on one developer machine with real PostgreSQL, SeaweedFS, and Temporal services.
+- Keep `dev` and `full` as Docker Compose profiles within Local, not as additional environments. `dev` provides background dependencies; `full` adds locally built application services.
 - Exercise the real Gateway, MCP Service, Workflow, Worker, and Artifact paths with fake CPU compute backends.
 - Bind host-published service ports to `127.0.0.1`.
 
@@ -29,7 +30,7 @@
 - This repository selects immutable application image digests, supplies deployment configuration, and coordinates rollout order.
 - It may document or invoke an application-owned migration, but must not duplicate or redefine migration code.
 - PostgreSQL bootstrap may create cluster-level databases, roles, and grants only. Each application remains the source of truth for its schemas and domain data.
-- MinIO deployment configuration owns buckets, policies, lifecycle rules, and service access boundaries. Preserve per-service namespaces and policies rather than relying on path prefixes alone for isolation.
+- SeaweedFS deployment configuration owns buckets, policies, lifecycle rules, and service access boundaries. Preserve per-service namespaces and policies rather than relying on path prefixes alone for isolation.
 - Preserve separate Temporal namespaces and task queues for Compute MCP Services.
 - Workers launch bounded Compute Job containers dynamically. Do not model those per-job containers as Compose services.
 
@@ -42,13 +43,14 @@
 - Treat files on GPU hosts as disposable cache or job-local temporary data unless an approved design states otherwise.
 - Caddy is the only component exposed on the public Production interface and the only component that binds ports `80` and `443`.
 - Preserve streaming behavior for Gateway MCP routes and do not cache them.
-- Keep PostgreSQL, MinIO, Temporal, Gateway backends, Compute MCP Services, and workers on private networks without public host ports.
+- Keep PostgreSQL, SeaweedFS, Temporal, Gateway backends, Compute MCP Services, and workers on private networks without public host ports.
 - Place external availability monitoring outside the control-plane and GPU-host failure domain. Internal probes may use only a trusted management network.
 - Enable non-root users, `no-new-privileges`, dropped capabilities, and read-only filesystems when supported by the service. Document the reason and narrow scope of any exception.
 
 ## Scripts and Configuration
 
-- Use Bash only for thin wrappers around Docker Compose and host tools.
+- Use the Go + Cobra `xdd` CLI for every Local lifecycle operation. Keep its command surface profile-explicit as `xdd local <dev|full> <action>`.
+- Use Bash only for end-to-end tests and thin wrappers around Docker Compose and host tools.
 - Start Bash scripts with `#!/usr/bin/env bash` and `set -Eeuo pipefail`.
 - Make environment and host targets explicit inputs; do not infer a Production target from the current directory, hostname, or an unset variable.
 - Prefer idempotent operations and provide a validation or preview step before a mutating Production action.
@@ -67,12 +69,13 @@
 ## Development and Validation
 
 - Derive commands from committed manifests, scripts, and CI workflows. Do not invent commands for tooling that has not been configured.
+- Format Go with `gofmt`, run `go vet ./...` and `go test ./...`, and verify installation with `go install ./cmd/xdd`.
+- Build `xdd` before Bash end-to-end tests and pass its path through `XDD_BIN`; the tests must exercise Local Compose only through the compiled CLI.
+- Validate Local configuration with `xdd local dev check` and `xdd local full check`. Use the separate smoke project only through the repository's committed smoke test.
 - For documentation-only changes, review affected links and run `git diff --check`.
 - Do not add placeholder CI that passes without validating an executable deployment artifact.
-- `TODO: When Compose manifests land, document the exact configuration validation commands for Local, Production control-plane, and Production GPU-node projects.`
-- `TODO: When the shell toolchain is configured, document the repository's exact ShellCheck and formatting commands.`
+- `TODO: When Production Compose manifests land, document the exact configuration validation commands for the Production control-plane and Production GPU-node projects.`
 - `TODO: When systemd units land, document the exact unit verification and safe installation checks.`
-- `TODO: When the Local smoke environment lands, document its non-destructive start, health-check, and stop workflow.`
 - `TODO: When backup, restore, and secret-delivery mechanisms are selected, document their rehearsal, rotation, redaction, and Production authorization checks.`
 
 ## Git and GitHub Workflow
