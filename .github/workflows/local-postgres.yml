@@ -1,0 +1,27 @@
+name: Validate Local PostgreSQL
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-postgres:
+    name: Compose and PostgreSQL smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate rendered Local Compose configuration
+        run: tests/local-compose-config.sh
+
+      - name: Smoke test PostgreSQL bootstrap
+        run: tests/local-postgres-smoke.sh

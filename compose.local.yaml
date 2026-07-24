@@ -1,0 +1,32 @@
+name: xdenovo-platform-local
+
+services:
+  postgres:
+    image: postgres:18.4
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: xdenovo_bootstrap
+      POSTGRES_PASSWORD: ${XDN_LOCAL_POSTGRES_ADMIN_PASSWORD:?Set XDN_LOCAL_POSTGRES_ADMIN_PASSWORD in the Local environment file}
+      GATEWAY_MIGRATOR_PASSWORD: ${XDN_GATEWAY_MIGRATOR_PASSWORD:?Set XDN_GATEWAY_MIGRATOR_PASSWORD in the Local environment file}
+      GATEWAY_RUNTIME_PASSWORD: ${XDN_GATEWAY_RUNTIME_PASSWORD:?Set XDN_GATEWAY_RUNTIME_PASSWORD in the Local environment file}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_POSTGRES_PORT:?Set XDN_LOCAL_POSTGRES_PORT in the Local environment file}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./config/postgres/bootstrap-platform.sql:/opt/xdenovo/bootstrap-platform.sql:ro
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username "$${POSTGRES_USER}" --dbname "$${POSTGRES_DB}"
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+
+volumes:
+  postgres_data:
