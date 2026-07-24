@@ -620,11 +620,13 @@ func TestLocalInitCreatesSecureRandomConfigurationAndRefusesOverwrite(t *testing
 	}
 	values := parseEnvForTest(t, string(content))
 	for key, want := range map[string]string{
-		"XDN_LOCAL_POSTGRES_PORT":  "5432",
-		"XDN_LOCAL_SEAWEEDFS_PORT": "8333",
-		"XDN_LOCAL_TEMPORAL_PORT":  "7233",
-		"XDN_LOCAL_DBGATE_PORT":    "3000",
-		"XDN_LOCAL_GATEWAY_PORT":   "3001",
+		"XDN_LOCAL_POSTGRES_PORT":         "5432",
+		"XDN_LOCAL_SEAWEEDFS_PORT":        "8333",
+		"XDN_LOCAL_SEAWEEDFS_MASTER_PORT": "9333",
+		"XDN_LOCAL_TEMPORAL_PORT":         "7233",
+		"XDN_LOCAL_TEMPORAL_UI_PORT":      "8233",
+		"XDN_LOCAL_DBGATE_PORT":           "3000",
+		"XDN_LOCAL_GATEWAY_PORT":          "3001",
 	} {
 		if got := values[key]; got != want {
 			t.Fatalf("%s: want %q, got %q", key, want, got)

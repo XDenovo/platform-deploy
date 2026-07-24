@@ -26,7 +26,9 @@ write_env() {
     printf 'XDN_GATEWAY_MIGRATOR_PASSWORD=compose-test-migrator-password\n'
     printf 'XDN_GATEWAY_RUNTIME_PASSWORD=compose-test-runtime-password\n'
     printf 'XDN_LOCAL_SEAWEEDFS_PORT=58333\n'
+    printf 'XDN_LOCAL_SEAWEEDFS_MASTER_PORT=59333\n'
     printf 'XDN_LOCAL_TEMPORAL_PORT=57233\n'
+    printf 'XDN_LOCAL_TEMPORAL_UI_PORT=58233\n'
     printf 'XDN_LOCAL_DBGATE_PORT=53000\n'
     printf 'XDN_LOCAL_GATEWAY_PORT=53001\n'
     printf 'XDN_GATEWAY_AUTH_SECRET=compose-test-gateway-auth-secret-32-bytes\n'
@@ -63,13 +65,13 @@ xdd local full check >/dev/null
 dev_services="$(xdd local dev -- config --services)"
 assert_lines \
   "${dev_services}" \
-  $'dbgate\npostgres\nseaweedfs\ntemporal' \
+  $'dbgate\npostgres\nseaweedfs\ntemporal\ntemporal-ui' \
   "dev profile services"
 
 full_services="$(xdd local full -- config --services)"
 assert_lines \
   "${full_services}" \
-  $'bindcraft-mcp\ndbgate\ngateway\ngraphpep-mcp\npepmimic-mcp\npostgres\nseaweedfs\ntemporal' \
+  $'bindcraft-mcp\ndbgate\ngateway\ngraphpep-mcp\npepmimic-mcp\npostgres\nseaweedfs\ntemporal\ntemporal-ui' \
   "full profile services"
 [[ "${full_services}" != *"website"* ]] ||
   fail "full profile must not include Website"
@@ -79,7 +81,8 @@ for image in \
   "chrislusf/seaweedfs:4.40" \
   "dbgate/dbgate:7.2.3-alpine" \
   "postgres:18.4" \
-  "temporalio/auto-setup:1.29.7"; do
+  "temporalio/auto-setup:1.29.7" \
+  "temporalio/ui:2.49.1"; do
   [[ "${images}" == *"${image}"* ]] ||
     fail "dev profile must use ${image}"
 done

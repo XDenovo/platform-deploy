@@ -11,7 +11,7 @@
 
 ### Local
 
-- Run the platform on one developer machine with real PostgreSQL, SeaweedFS, and Temporal services.
+- Run the platform on one developer machine with real PostgreSQL, SeaweedFS, and Temporal services plus loopback-only DbGate and Temporal Web interfaces.
 - Keep `dev` and `full` as Docker Compose profiles within Local, not as additional environments. `dev` provides background dependencies; `full` adds locally built application services.
 - Exercise the real Gateway, MCP Service, Workflow, Worker, and Artifact paths with fake CPU compute backends.
 - Bind host-published service ports to `127.0.0.1`.

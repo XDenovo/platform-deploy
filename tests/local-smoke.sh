@@ -61,7 +61,9 @@ XDN_LOCAL_POSTGRES_ADMIN_PASSWORD=smoke-test-admin-password
 XDN_GATEWAY_MIGRATOR_PASSWORD=smoke-test-migrator-password
 XDN_GATEWAY_RUNTIME_PASSWORD=smoke-test-runtime-password
 XDN_LOCAL_SEAWEEDFS_PORT=0
+XDN_LOCAL_SEAWEEDFS_MASTER_PORT=0
 XDN_LOCAL_TEMPORAL_PORT=0
+XDN_LOCAL_TEMPORAL_UI_PORT=0
 XDN_LOCAL_DBGATE_PORT=0
 XDN_LOCAL_GATEWAY_PORT=0
 XDN_GATEWAY_AUTH_SECRET=smoke-test-gateway-auth-secret-32-bytes
@@ -72,9 +74,16 @@ xdd local dev check
 xdd local dev up
 
 running_services="$(xdd local dev -- ps --services --filter status=running)"
-if [[ "$(printf '%s\n' "${running_services}" | sort)" != $'dbgate\npostgres\nseaweedfs\ntemporal' ]]; then
+if [[ "$(printf '%s\n' "${running_services}" | sort)" != $'dbgate\npostgres\nseaweedfs\ntemporal\ntemporal-ui' ]]; then
   fail "dev profile did not leave every dependency running"
 fi
+
+temporal_ui_binding="$(xdd local dev -- port temporal-ui 8080)"
+[[ "${temporal_ui_binding}" == 127.0.0.1:* ]] ||
+  fail "Temporal UI must publish only on loopback"
+seaweedfs_master_binding="$(xdd local dev -- port seaweedfs 9333)"
+[[ "${seaweedfs_master_binding}" == 127.0.0.1:* ]] ||
+  fail "SeaweedFS Master must publish only on loopback"
 
 xdd local dev bootstrap
 xdd local dev bootstrap

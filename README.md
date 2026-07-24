@@ -3,8 +3,9 @@
 This repository composes the XDenovo Platform's two environments: Local and
 Production. Local has two Docker Compose profiles:
 
-- `dev` runs PostgreSQL, SeaweedFS, Temporal, and DbGate as real background
-  dependencies for service development.
+- `dev` runs PostgreSQL, SeaweedFS, Temporal, Temporal UI, and DbGate as real
+  background dependencies and loopback-only management tools for service
+  development.
 - `full` runs everything in `dev` plus Gateway and the three Compute MCP
   Services from sibling source checkouts. It is a staging-like Local profile,
   not a third environment.
@@ -53,7 +54,9 @@ The default loopback endpoints are:
 |---|---|
 | PostgreSQL | `127.0.0.1:5432` |
 | SeaweedFS S3 | `http://127.0.0.1:8333` |
+| SeaweedFS Master | `http://127.0.0.1:9333` |
 | Temporal | `127.0.0.1:7233` |
+| Temporal UI | `http://127.0.0.1:8233` |
 | DbGate | `http://127.0.0.1:3000` |
 | Gateway (`full` only) | `http://127.0.0.1:3001` |
 
@@ -95,6 +98,18 @@ xdd local dev -- ps
 xdd local dev -- logs --follow temporal
 xdd local dev -- exec postgres psql --username xdenovo_bootstrap --dbname postgres
 ```
+
+Open the loopback-only Local management pages after `up`:
+
+```text
+DbGate:            http://127.0.0.1:3000
+Temporal UI:       http://127.0.0.1:8233
+SeaweedFS Master:  http://127.0.0.1:9333
+```
+
+Temporal UI waits for the Temporal service to become healthy. The SeaweedFS
+Master page exposes the all-in-one node's Local topology and volume status;
+the S3 endpoint remains on port `8333`.
 
 The arguments after `--` pass straight through to `docker compose` after
 `xdd` injects the project, env file, Compose file, and resolved profile flags.
@@ -154,11 +169,13 @@ Website is deliberately absent from `full`; run Website with its own
 
 ## Security scope
 
-The Local infrastructure images use `no-new-privileges`. Writable filesystems
-and image-default users/capabilities remain where the upstream entrypoints
-must initialize named volumes, generate Temporal configuration/schema, or
-update DbGate's container-local host mapping. These are loopback-only Local
-exceptions, not Production baselines.
+The Local infrastructure images use `no-new-privileges`. DbGate, Temporal UI,
+and the SeaweedFS Master page are unauthenticated Local tools and therefore
+bind only to `127.0.0.1`. Writable filesystems and image-default
+users/capabilities remain where the upstream entrypoints must initialize named
+volumes, generate Temporal configuration/schema, or update DbGate's
+container-local host mapping. These are loopback-only Local exceptions, not
+Production baselines.
 
 ## Validation
 

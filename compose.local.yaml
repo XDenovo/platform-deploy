@@ -42,6 +42,7 @@ services:
       - -s3
       - -dir=/data
     ports:
+      - "127.0.0.1:${XDN_LOCAL_SEAWEEDFS_MASTER_PORT:?Set XDN_LOCAL_SEAWEEDFS_MASTER_PORT in the Local environment file}:9333"
       - "127.0.0.1:${XDN_LOCAL_SEAWEEDFS_PORT:?Set XDN_LOCAL_SEAWEEDFS_PORT in the Local environment file}:8333"
     volumes:
       - seaweedfs_data:/data
@@ -89,6 +90,34 @@ services:
     security_opt:
       - no-new-privileges:true
     stop_grace_period: 30s
+
+  temporal-ui:
+    image: temporalio/ui:2.49.1
+    profiles:
+      - dev
+      - full
+    restart: unless-stopped
+    depends_on:
+      temporal:
+        condition: service_healthy
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://127.0.0.1:${XDN_LOCAL_TEMPORAL_UI_PORT:?Set XDN_LOCAL_TEMPORAL_UI_PORT in the Local environment file}
+    ports:
+      - "127.0.0.1:${XDN_LOCAL_TEMPORAL_UI_PORT}:8080"
+    healthcheck:
+      test:
+        - CMD
+        - wget
+        - --spider
+        - --quiet
+        - http://127.0.0.1:8080
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
 
   dbgate:
     image: dbgate/dbgate:7.2.3-alpine
